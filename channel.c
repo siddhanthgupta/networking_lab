@@ -34,6 +34,9 @@
 #include <semaphore.h>
 
 #define MAX_MESSAGE_SIZE 1024
+#define MAX_ATTEMPTS 50
+
+#define PROBABILITY_MESSAGE_LOSS 40
 
 // Message Types
 #define ACK 0
@@ -63,7 +66,8 @@ void create_files() {
     int fd1 = open(send_key_path, O_RDWR | O_CREAT,
     S_IRUSR | S_IRGRP | S_IROTH | S_IWUSR | S_IWGRP | S_IWOTH);
     if (fd1 == -1) {
-        fprintf(stderr, "Channel error: Unable to create send message queue key file. Exiting.\n");
+        fprintf(stderr,
+                "Channel error: Unable to create send message queue key file. Exiting.\n");
         exit(1);
     }
     int fd2 = open(receive_key_path, O_RDWR | O_CREAT,
@@ -213,7 +217,7 @@ static int in_cksum(u_short *addr, int len) {
  */
 
 sem_t* mutex_send;                    //Semaphore to access the buffer
-sem_t* mutex_receive;                      //Holds the number of full buffers (intiialised to 0)
+sem_t* mutex_receive;      //Holds the number of full buffers (intiialised to 0)
 
 /*     sem_wait() decrements (locks) the semaphore pointed to by sem.  If the semaphore's value is
  greater than zero, then the decrement proceeds, and the function returns, immediately.   If
@@ -231,16 +235,19 @@ sem_t* mutex_receive;                      //Holds the number of full buffers (i
 //Function encapsulates error handling for the sem_wait
 void semaphoreWait(sem_t* semaphore) {
     int x;
-    fprintf(stderr, "Status Report: semaphoreWait : Semaphore wait sent from process %ld.\n",
+    fprintf(stderr,
+            "Status Report: semaphoreWait : Semaphore wait sent from process %ld.\n",
             (long) getpid());
-    while ((x = sem_wait(semaphore)) == -1 && errno == EINTR)    //Restart if interrupted by handler
+    while ((x = sem_wait(semaphore)) == -1 && errno == EINTR) //Restart if interrupted by handler
         continue;
-    if (x == -1)                                         //Some error happened. We abort the program
+    if (x == -1)                     //Some error happened. We abort the program
             {
-        fprintf(stderr, "Error: semaphoreWait : Semaphore failed to lock (wait)\n");
+        fprintf(stderr,
+                "Error: semaphoreWait : Semaphore failed to lock (wait)\n");
         abort();
     }
-    fprintf(stderr, "Status Report: semaphoreWait : Process %ld ain't waitin' no more.\n",
+    fprintf(stderr,
+            "Status Report: semaphoreWait : Process %ld ain't waitin' no more.\n",
             (long) getpid());
 }
 
@@ -267,10 +274,12 @@ void semaphoreWait(sem_t* semaphore) {
 void semaphoreSignal(sem_t* semaphore) {
     int x;
     x = sem_post(semaphore);
-    fprintf(stderr, "Status Report: semaphoreSignal : Semaphore signal sent from process %ld.\n",
+    fprintf(stderr,
+            "Status Report: semaphoreSignal : Semaphore signal sent from process %ld.\n",
             (long) getpid());
     if (x == -1) {
-        fprintf(stderr, "Error: semaphoreSignal : Semaphore failed to unlock (signal)\n");
+        fprintf(stderr,
+                "Error: semaphoreSignal : Semaphore failed to unlock (signal)\n");
         abort();
     }
 }
@@ -282,8 +291,10 @@ int initializeSemaphores() {
     sprintf(str, "MUTEX SEND QUEUE");
     sem_unlink(str);
     //printf("%s\n",str);
-    if ((mutex_send = sem_open(str, O_CREAT, S_IRUSR | S_IWUSR, 1)) == SEM_FAILED) {
-        fprintf(stderr, "Error: semaphoreInitialization : Semaphore %s failed to initialise\n",
+    if ((mutex_send = sem_open(str, O_CREAT, S_IRUSR | S_IWUSR, 1))
+            == SEM_FAILED) {
+        fprintf(stderr,
+                "Error: semaphoreInitialization : Semaphore %s failed to initialise\n",
                 str);
         abort();
     }
@@ -291,17 +302,20 @@ int initializeSemaphores() {
     sprintf(str, "MUTEX RECEIVE QUEUE");
     sem_unlink(str);
     //printf("%s\n",str);
-    if ((mutex_receive = sem_open(str, O_CREAT, S_IRUSR | S_IWUSR, 1)) == SEM_FAILED) {
-        fprintf(stderr, "Error: semaphoreInitialization : Semaphore %s failed to initialise\n",
+    if ((mutex_receive = sem_open(str, O_CREAT, S_IRUSR | S_IWUSR, 1))
+            == SEM_FAILED) {
+        fprintf(stderr,
+                "Error: semaphoreInitialization : Semaphore %s failed to initialise\n",
                 str);
         abort();
     }
     return 1;
 }
 
-struct my_message* make_ip_message(int pid, int pid_dest, char* str_message, int msg_type,
-        int msg_seq) {
-    struct my_message* message = (struct my_message*) malloc(sizeof(struct my_message));
+struct my_message* make_ip_message(int pid, int pid_dest, char* str_message,
+        int msg_type, int msg_seq) {
+    struct my_message* message = (struct my_message*) malloc(
+            sizeof(struct my_message));
     message->mtype = (long) pid;
     strcpy((message->data).message, str_message);
 
@@ -315,7 +329,8 @@ struct my_message* make_ip_message(int pid, int pid_dest, char* str_message, int
 
 void send_message_to_send_queue(struct my_message* message) {
     semaphoreWait(mutex_send);
-    if (msgsnd(send_queue_id, message, sizeof(struct my_message) - sizeof(long), 0) == -1) {
+    if (msgsnd(send_queue_id, message, sizeof(struct my_message) - sizeof(long),
+            0) == -1) {
         printf("Channel error: Unable to send to send queue.\n");
         semaphoreSignal(mutex_send);
         exit(1);
@@ -324,16 +339,18 @@ void send_message_to_send_queue(struct my_message* message) {
 }
 
 struct my_message* receive_message_from_receive_queue(int pid) {
-    struct my_message* message = (struct my_message*) malloc(sizeof(struct my_message));
+    struct my_message* message = (struct my_message*) malloc(
+            sizeof(struct my_message));
     semaphoreWait(mutex_receive);
-    int status = msgrcv(receive_queue_id, message, sizeof(struct my_message) - sizeof(long),
-            (long) pid, IPC_NOWAIT);
+    int status = msgrcv(receive_queue_id, message,
+            sizeof(struct my_message) - sizeof(long), (long) pid, IPC_NOWAIT);
     if (status == -1) {
         if (errno == ENOMSG) {
             semaphoreSignal(mutex_receive);
             return NULL;
         }
-        fprintf(stderr, "Channel error: Unable to receive from receive queue.\n");
+        fprintf(stderr,
+                "Channel error: Unable to receive from receive queue.\n");
         semaphoreSignal(mutex_receive);
         exit(1);
     }
@@ -343,7 +360,8 @@ struct my_message* receive_message_from_receive_queue(int pid) {
 
 void send_message_to_receive_queue(struct my_message* message) {
     semaphoreWait(mutex_receive);
-    if (msgsnd(receive_queue_id, message, sizeof(struct my_message) - sizeof(long), 0) == -1) {
+    if (msgsnd(receive_queue_id, message,
+            sizeof(struct my_message) - sizeof(long), 0) == -1) {
         fprintf(stderr, "Channel error: Unable to send to receive queue.\n");
         semaphoreSignal(mutex_receive);
         exit(1);
@@ -353,9 +371,10 @@ void send_message_to_receive_queue(struct my_message* message) {
 
 struct my_message* receive_message_from_send_queue(int pid) {
     semaphoreWait(mutex_send);
-    struct my_message* message = (struct my_message*) malloc(sizeof(struct my_message));
-    int status = msgrcv(send_queue_id, message, sizeof(struct my_message) - sizeof(long),
-            (long) pid, IPC_NOWAIT);
+    struct my_message* message = (struct my_message*) malloc(
+            sizeof(struct my_message));
+    int status = msgrcv(send_queue_id, message,
+            sizeof(struct my_message) - sizeof(long), (long) pid, IPC_NOWAIT);
     if (status == -1) {
         if (errno == ENOMSG) {
             semaphoreSignal(mutex_send);
@@ -370,7 +389,8 @@ struct my_message* receive_message_from_send_queue(int pid) {
 }
 
 int transfer_messages_between_queues() {
-    struct my_message** msg_arr = (struct my_message**) malloc(sizeof(struct my_message*) * 100);
+    struct my_message** msg_arr = (struct my_message**) malloc(
+            sizeof(struct my_message*) * 100);
 
     int c = 0, status = 0, i = 0;
     do {
@@ -384,9 +404,7 @@ int transfer_messages_between_queues() {
     for (i = c - 1; i >= 0; i--) {
         msg_arr[i]->mtype = (msg_arr[i]->data).dest_pid;
         int r = rand() % 100;
-        if (r < 85)
-//        if(msg_arr[i]->data.msg_type == DATA)
-//            printf("CHANNEL : Transferring message %s\n",msg_arr[i]->data.message);
+        if (r > PROBABILITY_MESSAGE_LOSS)
             send_message_to_receive_queue(msg_arr[i]);
     }
     return c;
@@ -403,39 +421,97 @@ void destroy_channel() {
     sem_unlink(str);
 }
 
+int receiver() {
+    pid_t pid = getpid();
+    printf("Receiver process is %d\n", (int) pid);
+    int c = 0, attempts = 0;
+    int expected_seq = 0;
+    char dummy_str[2] = "\0";
+    while (attempts < MAX_ATTEMPTS) {
+        sleep(3);
+        attempts++;
+        struct my_message* message = receive_message_from_receive_queue(pid);
+        if (message == NULL) {
+            //printf("RECEIVER %d : No message received\n", (int) pid);
+        } else if ((message->data).msg_seq != expected_seq) {
+            int obtained_seq = (message->data).msg_seq;
+            printf("RECEIVER %d : Invalid SEQ received. Resend old ACK\n",
+                    (int) pid);
+            struct my_message* ret_msg = make_ip_message(pid,
+                    (message->data).src_pid, dummy_str,
+                    ACK, (obtained_seq + 1) % 2);
+            send_message_to_send_queue(ret_msg);
+        } else {
+            printf("RECEIVER %d : Receives message: %s\n", (int) pid,
+                    (message->data).message);
+            int obtained_seq = (message->data).msg_seq;
+            expected_seq = (obtained_seq + 1) % 2;
+            struct my_message* ret_msg = make_ip_message(pid,
+                    (message->data).src_pid, dummy_str,
+                    ACK, expected_seq);
+            send_message_to_send_queue(ret_msg);
+        }
+    }
+    if (attempts == MAX_ATTEMPTS) {
+        printf("RECEIVER %d : Receiver got tired of waiting.\n", (int) pid);
+    }
+    printf("RECEIVER %d : Exiting.\n", (int) pid);
+    return 0;
+}
+
+int sender(pid_t pid_receiver) {
+    // Child sender process
+    pid_t pid = getpid();
+    printf("SENDER %d : Receiver process is %d\n", (int) pid, pid_receiver);
+    int i, quit_count = 0;
+    for (i = 0; i < 10 && quit_count < 10; i++) {
+        char str[MAX_MESSAGE_SIZE];
+        sprintf(str, "Hello, This is message %d", i);
+        struct my_message* message = make_ip_message(pid, pid_receiver, str,
+        DATA, i % 2);
+        send_message_to_send_queue(message);
+        printf("SENDER %d : Sender sent message %s\n", (int) pid,
+                message->data.message);
+        sleep(6);
+        struct my_message* ack_msg = receive_message_from_receive_queue(pid);
+        if (ack_msg == NULL) {
+            // did not receive acknowledgment
+            // Resends the message again
+            printf("SENDER %d: Did not receive ACK\n", (int) pid);
+            quit_count++;
+            if (quit_count == 10)
+                printf("SENDER %d: Too many quits. Exiting.\n", (int) pid);
+            i--;
+        } else if ((ack_msg->data).msg_seq != ((i + 1) % 2)) {
+            printf(
+                    "SENDER %d: Received acknowledgment saying send message with seq %d, but expected seq %d\n",
+                    (int) pid, (ack_msg->data).msg_seq, ((i + 1) % 2));
+            i--;
+            quit_count = 0;
+        } else {
+            printf(
+                    "SENDER %d: Received acknowledgment saying send message with seq %d\n",
+                    (int) pid, (ack_msg->data).msg_seq);
+            quit_count = 0;
+        }
+    }
+    printf("SENDER %d : Exiting.\n", (int) pid);
+    return 0;
+}
+
 int main() {
     initialise_channel();
     destroy_channel();
     initialise_channel();
     initializeSemaphores();
+
     pid_t pid_receiver = fork();
     if (pid_receiver < 0) {
         fprintf(stderr, "Channel: Error: Unable to fork receiver process.\n");
         exit(1);
     } else if (pid_receiver == 0) {
-        // Child receiver Process
-        pid_t pid = getpid();
-        printf("Receiver process is %d\n", (int) pid);
-        int c = 0, attempts = 0;
-        char dummy_str[2] = "\0";
-        while (attempts < 50) {
-            sleep(3);
-            attempts++;
-            struct my_message* message = receive_message_from_receive_queue(pid);
-            if (message != NULL) {
-                printf("RECEIVER %d : Receives message: %s\n", (int) pid, (message->data).message);
-                int obtained_seq = (message->data).msg_seq;
-                struct my_message* ret_msg = make_ip_message(pid, (message->data).src_pid,
-                        dummy_str, ACK, obtained_seq);
-                send_message_to_send_queue(ret_msg);
-            } else {
-                printf("RECEIVER %d : No message received\n", (int) pid);
-            }
-        }
-        if (attempts == 20) {
-            printf("RECEIVER %d : Receiver got tired of waiting.\n", (int) pid);
-        }
-        printf("RECEIVER %d : Exiting.\n", (int) pid);
+        // Receiver Process
+        receiver();
     } else {
         // Parent Process
         pid_t pid_sender = fork();
@@ -443,45 +519,16 @@ int main() {
             fprintf(stderr, "Channel: Error: Unable to fork sender process.\n");
             exit(1);
         } else if (pid_sender == 0) {
-            // Child sender process
-            pid_t pid = getpid();
-            printf("SENDER %d : Receiver process is %d\n", (int) pid, pid_receiver);
-            int i, quit_count = 0;
-            for (i = 0; i < 10 && quit_count < 10; i++) {
-                char str[MAX_MESSAGE_SIZE];
-                sprintf(str, "Hello, This is message %d", i);
-                struct my_message* message = make_ip_message(pid, pid_receiver, str, DATA, i % 2);
-                send_message_to_send_queue(message);
-                printf("SENDER %d : Sender sent message %s\n", (int) pid, message->data.message);
-                sleep(6);
-                struct my_message* ack_msg = receive_message_from_receive_queue(pid);
-                if (ack_msg == NULL) {
-                    // did not receive acknowledgment
-                    // Resends the message again
-                    printf("SENDER %d: Did not receive ACK\n", (int) pid);
-                    quit_count++;
-                    if (quit_count == 10)
-                        printf("SENDER %d: Too many quits. Exiting.\n", (int) pid);
-                    i--;
-                } else {
-                    printf(
-                            "SENDER %d: Received acknowledgement saying received message with seq %d\n",
-                            (int) pid, (ack_msg->data).msg_seq);
-                    quit_count = 0;
-                }
-            }
-            printf("SENDER %d : Exiting.\n", (int) pid);
+            // Sender process
+            sender(pid_receiver);
 
         } else {
-            // parent process
+            // Parent process
             pid_t pid;
             int i;
             for (i = 0; i < 1000; i++) {
                 sleep(1);
-                //       printf("CHANNEL : Attempting Transfer\n");
-                int x = transfer_messages_between_queues();
-                //       printf("CHANNEL : Transfer Complete. %d Messages transferred\n", x);
-                // printf("%d messages transferred by channel\n", x);
+                int messages_transferred = transfer_messages_between_queues();
             }
             while (wait(NULL) != -1)
                 ;
